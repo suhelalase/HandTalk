@@ -89,5 +89,5 @@ jobs:
       - name: Backend Tests (if present)
         if: matrix.node-version == '20.x'
         run: |
-          if [ -d "tests" ]; then pytest -q; else echo "No backend tests"; fi
+          if [ -d "tests" ]; then pip install -r requirements-dev.txt && python -m pytest -q; else echo "No backend tests"; fi
         working-directory: apps/api
