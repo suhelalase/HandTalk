@@ -283,6 +283,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     {
                         "frameId": frame_id,
                         "clientTs": client_ts,
+                        "mode": "ASL",
                         "timingMs": {
                             "decode": (t_decode - t0) * 1000.0,
                             "detect": (t_detect - t_decode) * 1000.0,
@@ -338,6 +339,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 {
                     "frameId": frame_id,
                     "clientTs": client_ts,
+                    "mode": "ASL",
                     "timingMs": {
                         "decode": (t_decode - t0) * 1000.0,
                         "detect": (t_detect - t_decode) * 1000.0,

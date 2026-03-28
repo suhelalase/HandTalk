@@ -66,7 +66,8 @@ export async function POST(req: NextRequest) {
     let audioBuffer: ArrayBuffer;
     if (encodedAudio) {
       const base64 = encodedAudio.includes(',') ? encodedAudio.split(',', 2)[1] : encodedAudio;
-      audioBuffer = Buffer.from(base64, 'base64');
+      const buf = Buffer.from(base64, 'base64');
+      audioBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
     } else if (audioFileUrl) {
       const audioRes = await fetch(audioFileUrl);
       if (!audioRes.ok) {

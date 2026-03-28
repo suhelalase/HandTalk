@@ -102,7 +102,7 @@ def test_websocket_invalid_image_handling(test_client):
 
 @pytest.mark.asyncio
 def test_websocket_mode_switching(test_client):
-    """Test switching between ASL and ISL modes."""
+    """Test that the backend remains ASL-only regardless of client-provided mode."""
     with test_client.websocket_connect("/ws") as websocket:
         # Test ASL mode
         asl_payload = {
@@ -116,7 +116,7 @@ def test_websocket_mode_switching(test_client):
         asl_response = websocket.receive_json()
         assert asl_response["mode"] == "ASL"
 
-        # Test ISL mode
+        # Backend is ASL-only; client-provided ISL should not change server mode
         isl_payload = {
             "image": create_test_frame(),
             "mode": "ISL",
@@ -126,4 +126,4 @@ def test_websocket_mode_switching(test_client):
         }
         websocket.send_json(isl_payload)
         isl_response = websocket.receive_json()
-        assert isl_response["mode"] == "ISL"
+        assert isl_response["mode"] == "ASL"
