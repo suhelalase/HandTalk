@@ -32,6 +32,8 @@ jobs:
         with:
           context: ./apps/api
           push: true
+          build-args: |
+            MODEL_URL=${{ secrets.ASL_MODEL_URL }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/handtalk-app:backend-latest
             ${{ secrets.DOCKERHUB_USERNAME }}/handtalk-app:backend-${{ github.event.workflow_run.head_sha }}

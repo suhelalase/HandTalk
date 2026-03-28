@@ -2,6 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ARG MODEL_URL=
+
 # Install system dependencies for OpenCV
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
@@ -17,8 +19,14 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy model
-COPY ../../cnn8grps_rad1_model.h5 ./model.h5
+# Model (optional)
+RUN if [ -n "$MODEL_URL" ]; then \
+      echo "Downloading model from MODEL_URL" && \
+      curl -L --retry 3 --retry-delay 2 "$MODEL_URL" -o ./model.h5; \
+    else \
+      echo "MODEL_URL not set; building image without model" && \
+      : > ./model.h5; \
+    fi
 
 # Copy app
 COPY . .
