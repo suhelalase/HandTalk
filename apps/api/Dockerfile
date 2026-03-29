@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python packages
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY apps/api/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r ./requirements.txt
 
 # Model (optional)
 RUN if [ -n "$MODEL_URL" ]; then \
@@ -29,7 +29,7 @@ RUN if [ -n "$MODEL_URL" ]; then \
     fi
 
 # Copy app
-COPY . .
+COPY apps/api .
 
 # Expose port
 EXPOSE 8001
