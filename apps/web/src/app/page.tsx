@@ -518,7 +518,7 @@ export default function Home() {
       const height = video.videoHeight;
       if (!width || !height) return;
 
-      const targetW = Math.min(256, width);
+      const targetW = Math.min(224, width);
       const scale = targetW / width;
       const targetH = Math.max(1, Math.round(height * scale));
 
@@ -527,7 +527,7 @@ export default function Home() {
         canvas.width = targetW;
         canvas.height = targetH;
         ctx.drawImage(video, 0, 0, targetW, targetH);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.4);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.35);
         lastSentFrameSizeRef.current = { w: targetW, h: targetH };
 
         const frameId = ++frameIdRef.current;
@@ -551,7 +551,7 @@ export default function Home() {
     };
 
     // Fast tick; actual send rate is gated by one-in-flight ack.
-    intervalId = window.setInterval(sendFrame, 15);
+    intervalId = window.setInterval(sendFrame, 50);
     return () => {
       if (intervalId) window.clearInterval(intervalId);
     };

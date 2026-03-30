@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 model_manager = get_model_manager()
 
 # Hand detector
-hd = HandDetector(maxHands=1, detectionCon=0.75, minTrackCon=0.75)
+hd = HandDetector(maxHands=1, detectionCon=0.6, minTrackCon=0.6)
 
 # White background for skeleton
 white = np.ones((400, 400, 3), np.uint8) * 255
@@ -211,6 +211,9 @@ async def websocket_endpoint(websocket: WebSocket):
         "no_hand_count": 0,
         "last_committed": "",
         "pred_window": deque(maxlen=5),
+        "last_process_ts": 0.0,
+        "last_overlay": {"bbox": None, "landmarks": []},
+        "last_current_char": "",
     }
     try:
         while True:
@@ -233,11 +236,36 @@ async def websocket_endpoint(websocket: WebSocket):
             if frame is None:
                 continue
             t_decode = time.perf_counter()
+
+            sess = sessions[session_id]
+            now = time.perf_counter()
+            if (now - float(sess.get("last_process_ts", 0.0))) < 0.10:
+                t_end = time.perf_counter()
+                await websocket.send_json(
+                    {
+                        "frameId": frame_id,
+                        "clientTs": client_ts,
+                        "mode": "ASL",
+                        "timingMs": {
+                            "decode": (t_decode - t0) * 1000.0,
+                            "detect": 0.0,
+                            "predict": 0.0,
+                            "total": (t_end - t0) * 1000.0,
+                        },
+                        "currentChar": sess.get("last_current_char", ""),
+                        "transcript": sess.get("transcript", ""),
+                        "inputMode": input_mode,
+                        "modelAvailable": bool(getattr(model_manager, "is_model_available", lambda *_: False)("ASL")),
+                        "overlay": sess.get("last_overlay", {"bbox": None, "landmarks": []}),
+                    }
+                )
+                continue
+
+            sess["last_process_ts"] = now
             # Keep frame unflipped; frontend handles mirroring for display.
             hands, _ = hd.findHands(frame, draw=False, flipType=True)
             t_detect = time.perf_counter()
             current_char = ""
-            sess = sessions[session_id]
             pred_ran = False
             if hands:
                 try:
@@ -262,6 +290,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     overlay = {"bbox": hands[0].get("bbox"), "landmarks": hands[0].get("lmList", [])}
                 except Exception:
                     overlay = {"bbox": None, "landmarks": []}
+
+            sess["last_overlay"] = overlay
 
             if not hands:
                 sess["no_hand_count"] += 1
@@ -347,6 +377,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     "overlay": overlay,
                 }
             )
+
+            sess["last_current_char"] = current_char
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: {session_id}")
         sessions.pop(session_id, None)
