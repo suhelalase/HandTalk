@@ -25,7 +25,8 @@ class ModelManager:
         """Get full path to model file."""
         # Check multiple possible locations
         api_root = Path(__file__).resolve().parents[2]  # z:/HandTalk/apps/api
-        repo_root = Path(__file__).resolve().parents[4]  # z:/HandTalk
+        resolved = Path(__file__).resolve()
+        repo_root = resolved.parents[4] if len(resolved.parents) > 4 else None
 
         env_path = os.getenv("HANDTALK_MODEL_PATH")
         possible_paths = [
@@ -33,9 +34,12 @@ class ModelManager:
             api_root / model_name,  # apps/api/
             api_root / "model.h5",  # Dockerfile copies here
             api_root / "models" / model_name,  # apps/api/models/
-            repo_root / model_name,  # repo root
-            repo_root / "model.h5",  # repo root
-            repo_root / "models" / model_name,  # repo root models/
+            repo_root / model_name if repo_root else None,  # repo root
+            repo_root / "model.h5" if repo_root else None,  # repo root
+            repo_root / "models" / model_name if repo_root else None,  # repo root models/
+            Path("/app") / model_name,
+            Path("/app") / "model.h5",
+            Path("/app") / "models" / model_name,
         ]
 
         for path in possible_paths:
