@@ -20,11 +20,11 @@ COPY apps/api/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r ./requirements.txt
 
 # Model (optional)
-RUN if [ -n "$MODEL_URL" ]; then \
+RUN if echo "$MODEL_URL" | grep -Eq '^https?://'; then \
       echo "Downloading model from MODEL_URL" && \
       curl -L --retry 3 --retry-delay 2 "$MODEL_URL" -o ./model.h5; \
     else \
-      echo "MODEL_URL not set; building image without model" && \
+      echo "MODEL_URL not set (or not a URL); building image without model" && \
       : > ./model.h5; \
     fi
 
