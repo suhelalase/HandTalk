@@ -8,11 +8,10 @@ import os
 import time
 from collections import Counter, deque
 
-import cv2
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from cvzone.HandTrackingModule import HandDetector
+from PIL import Image, ImageDraw
 
 from src.services import get_model_manager
 
@@ -22,9 +21,6 @@ logger = logging.getLogger(__name__)
 
 # Initialize model manager (loads ASL model)
 model_manager = get_model_manager()
-
-# Hand detector
-hd = HandDetector(maxHands=1, detectionCon=0.6, minTrackCon=0.6)
 
 # White background for skeleton
 white = np.ones((400, 400, 3), np.uint8) * 255
@@ -177,26 +173,38 @@ def draw_skeleton_from_landmarks(landmarks, w, h):
     """Draw hand skeleton on white background - optimized for speed"""
     os_offset = ((400 - w) // 2) - 15
     os1_offset = ((400 - h) // 2) - 15
-    canvas = np.copy(white)
+    img = Image.new("RGB", (400, 400), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
 
-    # Pre-calculate offsets for landmarks
-    lms_offset = np.array([[p[0] + os_offset, p[1] + os1_offset] for p in landmarks], dtype=np.int32)
+    lms_offset = [(int(p[0] + os_offset), int(p[1] + os1_offset)) for p in landmarks]
 
-    # Draw fingers
     for start in [0, 5, 9, 13, 17]:
-        for i in range(start, min(start + 3, 20)):  # Fixed: max i is 19, so i+1 is 20 (valid)
-            cv2.line(canvas, tuple(lms_offset[i]), tuple(lms_offset[i + 1]), (0, 255, 0), 2)
+        for i in range(start, min(start + 3, 20)):
+            draw.line([lms_offset[i], lms_offset[i + 1]], fill=(0, 255, 0), width=2)
 
-    # Connect palm
     palm_pairs = [(5, 9), (9, 13), (13, 17), (0, 5), (0, 17)]
     for start, end in palm_pairs:
-        cv2.line(canvas, tuple(lms_offset[start]), tuple(lms_offset[end]), (0, 255, 0), 2)
+        draw.line([lms_offset[start], lms_offset[end]], fill=(0, 255, 0), width=2)
 
-    # Draw landmark circles
-    for point in lms_offset:
-        cv2.circle(canvas, tuple(point), 2, (0, 0, 255), 1)
+    for x, y in lms_offset:
+        draw.ellipse((x - 2, y - 2, x + 2, y + 2), outline=(0, 0, 255), width=1)
 
-    return canvas
+    return np.asarray(img, dtype=np.uint8)
+
+
+def _bbox_from_landmarks(pts):
+    try:
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        min_x = int(min(xs))
+        min_y = int(min(ys))
+        max_x = int(max(xs))
+        max_y = int(max(ys))
+        w = max(1, max_x - min_x)
+        h = max(1, max_y - min_y)
+        return (min_x, min_y, w, h)
+    except Exception:
+        return (0, 0, 0, 0)
 
 
 @app.websocket("/ws")
@@ -217,24 +225,43 @@ async def websocket_endpoint(websocket: WebSocket):
     }
     try:
         while True:
-            # Expect JSON: { image: base64-jpeg, inputMode: "letters"|"words" }
+            # Expect JSON: { landmarks: [[x,y,z?]...], inputMode: "letters"|"words" }
+            # Backward compatible: { image: base64-jpeg, ... }
             data = await websocket.receive_text()
             payload = json.loads(data)
             b64 = payload.get("image", "")
+            pts = payload.get("landmarks")
             input_mode = payload.get("inputMode", "letters")
             frame_id = payload.get("frameId")
             client_ts = payload.get("clientTs")
-            if not b64:
+            if not pts and not b64:
                 continue
 
             t0 = time.perf_counter()
-            # Decode image
-            header, encoded = b64.split(",", 1)
-            img_bytes = base64.b64decode(encoded)
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if frame is None:
-                continue
+            # Decode / normalize landmarks
+            if pts and isinstance(pts, list) and len(pts) == 21:
+                norm_pts = []
+                for p in pts:
+                    if not isinstance(p, (list, tuple)) or len(p) < 2:
+                        norm_pts = []
+                        break
+                    x = float(p[0])
+                    y = float(p[1])
+                    z = float(p[2]) if len(p) >= 3 else 0.0
+                    norm_pts.append([x, y, z])
+            else:
+                norm_pts = []
+
+            if not norm_pts and b64:
+                # Legacy path: accept base64 image (more expensive; may OOM on free tier)
+                header, encoded = b64.split(",", 1)
+                _ = header
+                img_bytes = base64.b64decode(encoded)
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                frame = np.asarray(img)
+                # No server-side mediapipe now, so we can't extract landmarks here.
+                # Treat as no-hand.
+                norm_pts = []
             t_decode = time.perf_counter()
 
             sess = sessions[session_id]
@@ -262,24 +289,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             sess["last_process_ts"] = now
-            # Keep frame unflipped; frontend handles mirroring for display.
-            hands, _ = hd.findHands(frame, draw=False, flipType=True)
             t_detect = time.perf_counter()
             current_char = ""
             pred_ran = False
-            if hands:
-                try:
-                    fh, fw = frame.shape[:2]
-                    bx, by, bw, bh = hands[0].get("bbox", (0, 0, 0, 0))
-                    if bw <= 0 or bh <= 0:
-                        hands = []
-                    else:
-                        area = float(bw * bh)
-                        frame_area = float(fw * fh)
-                        if bw < 40 or bh < 40 or area < frame_area * 0.01 or area > frame_area * 0.90:
-                            hands = []
-                except Exception:
-                    hands = []
+            hands = []
+            if norm_pts:
+                bbox = _bbox_from_landmarks(norm_pts)
+                hands = [{"bbox": bbox, "lmList": norm_pts}]
 
             t_pred0 = t_detect
             t_pred1 = t_detect

@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Camera, CameraOff, Volume2, Settings, RotateCcw, ShieldQuestion } from 'lucide-react';
+import { Camera as CameraIcon, CameraOff, Volume2, Settings, RotateCcw, ShieldQuestion } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Hands } from '@mediapipe/hands';
+import { Camera } from '@mediapipe/camera_utils';
 
 type InputMode = 'letters' | 'words';
 
@@ -39,6 +41,9 @@ export default function Home() {
   const lastSentFrameSizeRef = useRef<{ w: number; h: number } | null>(null);
   const frameIdRef = useRef<number>(0);
   const inflightFrameIdRef = useRef<number | null>(null);
+  const handsRef = useRef<Hands | null>(null);
+  const mpCameraRef = useRef<any>(null);
+  const latestLandmarksRef = useRef<number[][] | null>(null);
 
   useEffect(() => {
     try {
@@ -164,6 +169,19 @@ export default function Home() {
     if (stream) stream.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    try {
+      mpCameraRef.current?.stop?.();
+    } catch {
+      // ignore
+    }
+    mpCameraRef.current = null;
+    try {
+      handsRef.current?.close?.();
+    } catch {
+      // ignore
+    }
+    handsRef.current = null;
+    latestLandmarksRef.current = null;
     lastAutoSpokenTranscriptRef.current = '';
     setIsStreaming(false);
   };
@@ -496,16 +514,75 @@ export default function Home() {
     if (!videoRef.current) return;
 
     let intervalId: number | undefined;
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+
+    const video = videoRef.current;
+
+    if (!handsRef.current) {
+      const hands = new Hands({
+        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+      });
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 0,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6,
+      });
+
+      hands.onResults((results: any) => {
+        const lm = results?.multiHandLandmarks?.[0];
+        if (!lm || !Array.isArray(lm) || lm.length !== 21) {
+          latestLandmarksRef.current = null;
+          return;
+        }
+
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if (!vw || !vh) {
+          latestLandmarksRef.current = null;
+          return;
+        }
+
+        const targetW = Math.min(224, vw);
+        const scale = targetW / vw;
+        const targetH = Math.max(1, Math.round(vh * scale));
+
+        const pts = lm.map((p: any) => {
+          const x = (typeof p?.x === 'number' ? p.x : 0) * targetW;
+          const y = (typeof p?.y === 'number' ? p.y : 0) * targetH;
+          const z = typeof p?.z === 'number' ? p.z : 0;
+          return [x, y, z];
+        });
+
+        latestLandmarksRef.current = pts;
+        lastSentFrameSizeRef.current = { w: targetW, h: targetH };
+      });
+
+      handsRef.current = hands;
+    }
+
+    if (!mpCameraRef.current) {
+      mpCameraRef.current = new Camera(video, {
+        onFrame: async () => {
+          try {
+            await handsRef.current?.send({ image: video } as any);
+          } catch {
+            // ignore
+          }
+        },
+        width: 640,
+        height: 480,
+      });
+      try {
+        mpCameraRef.current.start();
+      } catch {
+        // ignore
+      }
+    }
 
     const sendFrame = () => {
       const ws = wsRef.current;
-      const video = videoRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      if (!video) return;
-      if (video.readyState < 2) return;
       if (isSendingFrameRef.current) return;
 
       // Only keep one in-flight frame to prevent queueing/latency.
@@ -514,29 +591,18 @@ export default function Home() {
       // If the WS buffer is growing, drop frames to keep latency low.
       if (ws.bufferedAmount > 250_000) return;
 
-      const width = video.videoWidth;
-      const height = video.videoHeight;
-      if (!width || !height) return;
-
-      const targetW = Math.min(224, width);
-      const scale = targetW / width;
-      const targetH = Math.max(1, Math.round(height * scale));
+      const pts = latestLandmarksRef.current;
+      if (!pts || pts.length !== 21) return;
 
       isSendingFrameRef.current = true;
       try {
-        canvas.width = targetW;
-        canvas.height = targetH;
-        ctx.drawImage(video, 0, 0, targetW, targetH);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.35);
-        lastSentFrameSizeRef.current = { w: targetW, h: targetH };
-
         const frameId = ++frameIdRef.current;
         inflightFrameIdRef.current = frameId;
         const clientTs = Date.now();
 
         ws.send(
           JSON.stringify({
-            image: dataUrl,
+            landmarks: pts,
             inputMode,
             frameId,
             clientTs,
@@ -646,7 +712,7 @@ export default function Home() {
                   isStreaming && 'bg-red-500 text-white hover:bg-red-500/90'
                 )}
               >
-                {isStreaming ? <CameraOff size={18} /> : <Camera size={18} />}
+                {isStreaming ? <CameraOff size={18} /> : <CameraIcon size={18} />}
                 <span className="hidden md:inline">{isStreaming ? 'Stop' : 'Start'}</span>
               </button>
             </div>
