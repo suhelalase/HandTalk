@@ -9,10 +9,10 @@ import os
 import sys
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 
 # Add parent directories to path for imports
@@ -33,32 +33,22 @@ def test_client():
 @pytest.fixture
 def sample_image_frame():
     """Create a sample test image frame (w/ hand detected)."""
-    # Create a simple white image with some features
-    img = np.ones((480, 640, 3), dtype=np.uint8) * 255
-    # Draw some contours to simulate a hand
-    cv2.circle(img, (320, 240), 50, (0, 0, 0), -1)
-    cv2.circle(img, (340, 220), 10, (255, 0, 0), -1)
-    cv2.circle(img, (300, 220), 10, (255, 0, 0), -1)
-
-    # Encode to base64 JPEG
-    _, buffer = cv2.imencode('.jpg', img)
-    base64_image = base64.b64encode(buffer).decode('utf-8')
+    img = Image.new("RGB", (640, 480), (255, 255, 255))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=75)
+    base64_image = base64.b64encode(buf.getvalue()).decode("utf-8")
     return f"data:image/jpeg;base64,{base64_image}"
 
 
 @pytest.fixture
 def sample_frame_payload():
     """Create a sample WebSocket frame payload."""
-    img = np.ones((480, 640, 3), dtype=np.uint8) * 255
-    _, buffer = cv2.imencode('.jpg', img)
-    base64_image = base64.b64encode(buffer).decode('utf-8')
-
     return {
-        "image": f"data:image/jpeg;base64,{base64_image}",
+        "landmarks": [[100 + i * 5, 100 + i * 3, 0.0] for i in range(21)],
         "mode": "ASL",
         "inputMode": "letters",
         "frameId": 1,
-        "clientTs": 1234567890.123
+        "clientTs": 1234567890.123,
     }
 
 
@@ -67,7 +57,7 @@ def mock_landmarks():
     """Create mock hand landmarks (21 points)."""
     landmarks = []
     for i in range(21):
-        landmarks.append([100 + i*5, 100 + i*3])
+        landmarks.append([100 + i * 5, 100 + i * 3, 0.0])
     return landmarks
 
 

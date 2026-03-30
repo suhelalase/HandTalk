@@ -2,20 +2,13 @@
 Tests for WebSocket functionality.
 """
 
-import base64
 import json
 
-import cv2
-import numpy as np
 import pytest
 
-
-def create_test_frame():
-    """Create a test frame and encode as base64 data-uri."""
-    img = np.ones((480, 640, 3), dtype=np.uint8) * 255
-    _, buffer = cv2.imencode('.jpg', img)
-    base64_image = base64.b64encode(buffer).decode('utf-8')
-    return f"data:image/jpeg;base64,{base64_image}"
+def create_test_landmarks():
+    """Create mock hand landmarks (21 points)."""
+    return [[100 + i * 5, 100 + i * 3, 0.0] for i in range(21)]
 
 
 @pytest.mark.asyncio
@@ -23,7 +16,7 @@ def test_websocket_receives_response(test_client):
     """Test that WebSocket receives valid response."""
     with test_client.websocket_connect("/ws") as websocket:
         frame_payload = {
-            "image": create_test_frame(),
+            "landmarks": create_test_landmarks(),
             "mode": "ASL",
             "inputMode": "letters",
             "frameId": 1,
@@ -49,7 +42,7 @@ def test_websocket_accumulates_transcript(test_client):
         # Send multiple frames
         for i in range(3):
             frame_payload = {
-                "image": create_test_frame(),
+                "landmarks": create_test_landmarks(),
                 "mode": "ASL",
                 "inputMode": "letters",
                 "frameId": i,
@@ -65,7 +58,7 @@ def test_websocket_response_has_timing(test_client):
     """Test that response includes timing metrics."""
     with test_client.websocket_connect("/ws") as websocket:
         frame_payload = {
-            "image": create_test_frame(),
+            "landmarks": create_test_landmarks(),
             "mode": "ASL",
             "inputMode": "letters",
             "frameId": 1,
@@ -87,9 +80,9 @@ def test_websocket_response_has_timing(test_client):
 def test_websocket_invalid_image_handling(test_client):
     """Test that invalid images are handled gracefully."""
     with test_client.websocket_connect("/ws") as websocket:
-        # Send invalid image
+        # Send invalid payload
         frame_payload = {
-            "image": "data:image/jpeg;base64,INVALID_BASE64",
+            "landmarks": "INVALID",
             "mode": "ASL",
             "inputMode": "letters",
             "frameId": 1,
@@ -106,7 +99,7 @@ def test_websocket_mode_switching(test_client):
     with test_client.websocket_connect("/ws") as websocket:
         # Test ASL mode
         asl_payload = {
-            "image": create_test_frame(),
+            "landmarks": create_test_landmarks(),
             "mode": "ASL",
             "inputMode": "letters",
             "frameId": 1,
@@ -118,7 +111,7 @@ def test_websocket_mode_switching(test_client):
 
         # Backend is ASL-only; client-provided ISL should not change server mode
         isl_payload = {
-            "image": create_test_frame(),
+            "landmarks": create_test_landmarks(),
             "mode": "ISL",
             "inputMode": "letters",
             "frameId": 2,
