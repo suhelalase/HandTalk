@@ -5,10 +5,8 @@ import json
 import logging
 import math
 import os
-import sys
 import time
 from collections import Counter, deque
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -16,11 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from cvzone.HandTrackingModule import HandDetector
 
-# Add project root for imports
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-# If you have a shared utils package, you can import here
-
-from apps.api.src.services import get_model_manager
+from src.services import get_model_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
